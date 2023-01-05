@@ -8,11 +8,12 @@ declare type Functionalise<T> = T extends (...args: any[]) => any ? T : () => T;
 declare type SpawnPromiseObject<T> = {
     [K in keyof T]: ReplaceReturnType<Functionalise<T[K]>, Promise<UnWrapPromise<StripFunctions<T[K]>>>>;
 };
-
-declare const spawn: <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions) => Promise<SpawnPromiseObject<T> & {
+declare type SpawnedWorker<T> = SpawnPromiseObject<T> & {
     exit: Promise<number>;
     terminate: () => Promise<number>;
-}>;
+};
+
+declare const spawn: <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions) => Promise<SpawnedWorker<T>>;
 
 declare const primary_spawn: typeof spawn;
 declare namespace primary {

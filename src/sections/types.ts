@@ -31,3 +31,5 @@ type Functionalise<T> = T extends (...args: any[]) => any ? T : () => T;
 // For each property of the given object, return a function that returns a promise of the property's value,
 // or if the property is a function, return a function with the same arguments that returns a promise of the function's return value
 export type SpawnPromiseObject<T> = { [K in keyof T]: ReplaceReturnType<Functionalise<T[K]>, Promise<UnWrapPromise<StripFunctions<T[K]>>>> };
+
+export type SpawnedWorker<T> = SpawnPromiseObject<T> & { exit: Promise<number>; terminate: () => Promise<number> };

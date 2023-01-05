@@ -1,11 +1,8 @@
 import { Worker, WorkerOptions } from 'node:worker_threads';
 import { getDeferred } from 'swiss-ak';
-import { MsgListFunctions, MsgResult, MsgTrigger, SpawnPromiseObject } from './types.js';
+import { MsgListFunctions, MsgResult, MsgTrigger, SpawnPromiseObject, SpawnedWorker } from './types.js';
 
-export const spawn = async <T extends Object>(
-  filename: string | URL,
-  workerOptions?: WorkerOptions
-): Promise<SpawnPromiseObject<T> & { exit: Promise<number>; terminate: () => Promise<number> }> => {
+export const spawn = async <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions): Promise<SpawnedWorker<T>> => {
   const worker = new Worker(filename, {
     execArgv: process.execArgv,
     ...(workerOptions || {})
