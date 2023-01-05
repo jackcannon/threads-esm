@@ -33,4 +33,4 @@ declare namespace secondary {
   };
 }
 
-export { SpawnPromiseObject, expose, primary, secondary, spawn };
+export { SpawnPromiseObject, SpawnedWorker, expose, primary, secondary, spawn };
