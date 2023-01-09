@@ -27,10 +27,12 @@
   "scripts": {
     "build": "tsup-node src/index.ts --format cjs,esm --dts --clean",
     "watch": "yarn build:dist -- --watch src",
-    "example": "cd examples/basic && yarn && yarn start",
+    "example": "yarn example:basic && yarn example:bidirectional",
+    "example:basic": "cd examples/basic && yarn && yarn start",
+    "example:bidirectional": "cd examples/bidirectional && yarn && yarn start",
     "prepublishOnly": "yarn build"
   },
   "dependencies": {
-    "swiss-ak": "^1.16.0"
+    "msg-facade": "^1.0.0"
   }
 }

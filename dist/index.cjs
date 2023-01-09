@@ -1,6 +1,8 @@
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -14,125 +16,92 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/index.ts
 var src_exports = {};
 __export(src_exports, {
   expose: () => expose,
+  exposeBidirectional: () => exposeBidirectional,
   primary: () => primary_exports,
   secondary: () => secondary_exports,
   spawn: () => spawn,
-  workerData: () => import_node_worker_threads2.workerData
+  spawnBidirectional: () => spawnBidirectional
 });
 module.exports = __toCommonJS(src_exports);
 
 // src/sections/primary.ts
 var primary_exports = {};
 __export(primary_exports, {
-  spawn: () => spawn
+  spawn: () => spawn,
+  spawnBidirectional: () => spawnBidirectional
 });
 var import_node_worker_threads = require("worker_threads");
-var import_swiss_ak = require("swiss-ak");
-var spawn = async (filename, workerOptions) => {
+var import_msg_facade = __toESM(require("msg-facade"), 1);
+var handleSpawn = async (filename, workerOptions, getFacade) => {
   const worker = new import_node_worker_threads.Worker(filename, {
     execArgv: process.execArgv,
     ...workerOptions || {}
   });
   let terminated = false;
-  const deferred = (0, import_swiss_ak.getDeferred)();
-  worker.on("exit", (code) => {
-    if (code !== 0 && !terminated) {
-      deferred.reject(new Error(`Worker stopped with exit code ${code}`));
-    } else {
-      deferred.resolve(code);
-    }
-  });
-  const functions = await new Promise((resolve, reject) => {
-    const resultListener = (msg) => {
-      if (msg.type !== "list-functions")
-        return;
-      removeListeners();
-      resolve(msg.functions);
-    };
-    const errListener = (err) => {
-      removeListeners();
-      reject(err);
-    };
-    const removeListeners = () => {
-      worker.removeListener("message", resultListener);
-      worker.removeListener("error", errListener);
-    };
-    worker.on("message", resultListener);
-    worker.on("error", errListener);
-  });
-  const callFunction = (fnName) => async (...fnArgs) => {
-    return new Promise((resolve, reject) => {
-      let resolved = false;
-      const id = Math.random().toString(36).slice(2);
-      const resultListener = (msg) => {
-        if (resolved)
-          return;
-        if (msg.type !== "result" || msg.id !== id)
-          return;
-        resolved = true;
-        worker.removeListener("message", resultListener);
-        worker.removeListener("error", errListener);
-        resolve(msg.result);
-      };
-      const errListener = (err) => {
-        if (resolved)
-          return;
-        worker.removeListener("message", resultListener);
-        worker.removeListener("error", errListener);
-        reject(err);
-      };
-      worker.on("message", resultListener);
-      worker.on("error", errListener);
-      worker.postMessage({ type: "trigger", name: fnName, args: fnArgs, id });
-    });
-  };
+  const facade = await getFacade(worker);
+  const { promise, ...facadeRest } = facade;
+  const callObj = facadeRest;
+  const exit = promise.then(
+    (code) => new Promise((resolve, reject) => {
+      if (code !== 0 && !terminated) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      } else {
+        resolve(code);
+      }
+    })
+  );
   const terminate = () => {
     terminated = true;
     worker.terminate();
-    return deferred.promise;
+    return promise;
   };
-  const callObj = Object.fromEntries(functions.map((fnName) => [fnName, callFunction(fnName)]));
   return {
     ...callObj,
-    exit: deferred.promise,
+    exit,
     terminate
   };
+};
+var spawn = (filename, workerOptions) => {
+  return handleSpawn(filename, workerOptions, (worker) => import_msg_facade.default.obtain(worker, import_msg_facade.default.configs.workers));
+};
+var spawnBidirectional = async (exposeObj, filename, workerOptions) => {
+  return handleSpawn(
+    filename,
+    workerOptions,
+    (worker) => import_msg_facade.default.bidirectional(exposeObj, worker, import_msg_facade.default.configs.workers)
+  );
 };
 
 // src/sections/secondary.ts
 var secondary_exports = {};
 __export(secondary_exports, {
   expose: () => expose,
-  workerData: () => import_node_worker_threads2.workerData
+  exposeBidirectional: () => exposeBidirectional
 });
 var import_node_worker_threads2 = require("worker_threads");
+var import_msg_facade2 = __toESM(require("msg-facade"), 1);
 var expose = (obj) => {
-  var _a, _b;
-  const functions = Object.keys(obj);
-  (_a = import_node_worker_threads2.parentPort) == null ? void 0 : _a.postMessage({ type: "list-functions", functions });
-  (_b = import_node_worker_threads2.parentPort) == null ? void 0 : _b.on("message", async (msg) => {
-    var _a2;
-    if (msg.type !== "trigger")
-      return;
-    const value = obj[msg.name];
-    if (!value)
-      throw new Error(`Function ${msg.name} does not exist`);
-    const result = typeof value === "function" ? value(...msg.args || []) : value;
-    const awaited = await result;
-    (_a2 = import_node_worker_threads2.parentPort) == null ? void 0 : _a2.postMessage({ type: "result", id: msg.id, result: awaited });
-  });
+  return import_msg_facade2.default.share(obj, import_node_worker_threads2.parentPort, import_msg_facade2.default.configs.workers);
+};
+var exposeBidirectional = async (obj) => {
+  return import_msg_facade2.default.bidirectional(obj, import_node_worker_threads2.parentPort, import_msg_facade2.default.configs.workers);
 };
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   expose,
+  exposeBidirectional,
   primary,
   secondary,
   spawn,
-  workerData
+  spawnBidirectional
 });

@@ -1,21 +1,10 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { MsgResult, MsgTrigger } from './types.js';
-
-export { workerData };
+import msgFacade from 'msg-facade';
 
 export const expose = <T extends Object>(obj: T) => {
-  const functions = Object.keys(obj);
-  parentPort?.postMessage({ type: 'list-functions', functions });
+  return msgFacade.share<T, typeof parentPort>(obj, parentPort, msgFacade.configs.workers);
+};
 
-  parentPort?.on('message', async (msg: MsgTrigger) => {
-    if (msg.type !== 'trigger') return;
-
-    const value = obj[msg.name];
-    if (!value) throw new Error(`Function ${msg.name} does not exist`);
-
-    const result = typeof value === 'function' ? value(...(msg.args || [])) : value;
-    const awaited = await result;
-
-    parentPort?.postMessage({ type: 'result', id: msg.id, result: awaited } as MsgResult);
-  });
+export const exposeBidirectional = async <ParentT extends Object, WorkerT extends Object>(obj: ParentT) => {
+  return msgFacade.bidirectional<ParentT, WorkerT, typeof parentPort>(obj, parentPort, msgFacade.configs.workers);
 };

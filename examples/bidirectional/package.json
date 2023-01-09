@@ -1,5 +1,5 @@
 {
-  "name": "threads-esm_examples_basic",
+  "name": "threads-esm_examples_bidirectional",
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",

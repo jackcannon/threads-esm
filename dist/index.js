@@ -7,108 +7,70 @@ var __export = (target, all) => {
 // src/sections/primary.ts
 var primary_exports = {};
 __export(primary_exports, {
-  spawn: () => spawn
+  spawn: () => spawn,
+  spawnBidirectional: () => spawnBidirectional
 });
 import { Worker } from "node:worker_threads";
-import { getDeferred } from "swiss-ak";
-var spawn = async (filename, workerOptions) => {
+import msgFacade from "msg-facade";
+var handleSpawn = async (filename, workerOptions, getFacade) => {
   const worker = new Worker(filename, {
     execArgv: process.execArgv,
     ...workerOptions || {}
   });
   let terminated = false;
-  const deferred = getDeferred();
-  worker.on("exit", (code) => {
-    if (code !== 0 && !terminated) {
-      deferred.reject(new Error(`Worker stopped with exit code ${code}`));
-    } else {
-      deferred.resolve(code);
-    }
-  });
-  const functions = await new Promise((resolve, reject) => {
-    const resultListener = (msg) => {
-      if (msg.type !== "list-functions")
-        return;
-      removeListeners();
-      resolve(msg.functions);
-    };
-    const errListener = (err) => {
-      removeListeners();
-      reject(err);
-    };
-    const removeListeners = () => {
-      worker.removeListener("message", resultListener);
-      worker.removeListener("error", errListener);
-    };
-    worker.on("message", resultListener);
-    worker.on("error", errListener);
-  });
-  const callFunction = (fnName) => async (...fnArgs) => {
-    return new Promise((resolve, reject) => {
-      let resolved = false;
-      const id = Math.random().toString(36).slice(2);
-      const resultListener = (msg) => {
-        if (resolved)
-          return;
-        if (msg.type !== "result" || msg.id !== id)
-          return;
-        resolved = true;
-        worker.removeListener("message", resultListener);
-        worker.removeListener("error", errListener);
-        resolve(msg.result);
-      };
-      const errListener = (err) => {
-        if (resolved)
-          return;
-        worker.removeListener("message", resultListener);
-        worker.removeListener("error", errListener);
-        reject(err);
-      };
-      worker.on("message", resultListener);
-      worker.on("error", errListener);
-      worker.postMessage({ type: "trigger", name: fnName, args: fnArgs, id });
-    });
-  };
+  const facade = await getFacade(worker);
+  const { promise, ...facadeRest } = facade;
+  const callObj = facadeRest;
+  const exit = promise.then(
+    (code) => new Promise((resolve, reject) => {
+      if (code !== 0 && !terminated) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      } else {
+        resolve(code);
+      }
+    })
+  );
   const terminate = () => {
     terminated = true;
     worker.terminate();
-    return deferred.promise;
+    return promise;
   };
-  const callObj = Object.fromEntries(functions.map((fnName) => [fnName, callFunction(fnName)]));
   return {
     ...callObj,
-    exit: deferred.promise,
+    exit,
     terminate
   };
+};
+var spawn = (filename, workerOptions) => {
+  return handleSpawn(filename, workerOptions, (worker) => msgFacade.obtain(worker, msgFacade.configs.workers));
+};
+var spawnBidirectional = async (exposeObj, filename, workerOptions) => {
+  return handleSpawn(
+    filename,
+    workerOptions,
+    (worker) => msgFacade.bidirectional(exposeObj, worker, msgFacade.configs.workers)
+  );
 };
 
 // src/sections/secondary.ts
 var secondary_exports = {};
 __export(secondary_exports, {
   expose: () => expose,
-  workerData: () => workerData
+  exposeBidirectional: () => exposeBidirectional
 });
-import { parentPort, workerData } from "node:worker_threads";
+import { parentPort } from "node:worker_threads";
+import msgFacade2 from "msg-facade";
 var expose = (obj) => {
-  var _a, _b;
-  const functions = Object.keys(obj);
-  (_a = parentPort) == null ? void 0 : _a.postMessage({ type: "list-functions", functions });
-  (_b = parentPort) == null ? void 0 : _b.on("message", async (msg) => {
-    var _a2;
-    if (msg.type !== "trigger")
-      return;
-    const value = obj[msg.name];
-    if (!value)
-      throw new Error(`Function ${msg.name} does not exist`);
-    const result = typeof value === "function" ? value(...msg.args || []) : value;
-    const awaited = await result;
-    (_a2 = parentPort) == null ? void 0 : _a2.postMessage({ type: "result", id: msg.id, result: awaited });
-  });
+  return msgFacade2.share(obj, parentPort, msgFacade2.configs.workers);
+};
+var exposeBidirectional = async (obj) => {
+  return msgFacade2.bidirectional(obj, parentPort, msgFacade2.configs.workers);
 };
 export {
   expose,
+  exposeBidirectional,
   primary_exports as primary,
   secondary_exports as secondary,
   spawn,
-  workerData
+  spawnBidirectional
 };

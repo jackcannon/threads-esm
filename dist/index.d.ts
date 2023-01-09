@@ -1,36 +1,39 @@
-import { WorkerOptions, workerData } from 'node:worker_threads';
-export { workerData } from 'node:worker_threads';
+import { WorkerOptions } from 'node:worker_threads';
+import * as msg_facade from 'msg-facade';
+import { MappedMsgFacade } from 'msg-facade';
 
-declare type UnWrapPromise<T> = T extends Promise<infer U> ? U : T;
-declare type StripFunctions<T> = T extends (...args: any[]) => infer R ? R : T;
-declare type ReplaceReturnType<T extends (...args: any) => any, Z> = (...args: Parameters<T>) => Z;
-declare type Functionalise<T> = T extends (...args: any[]) => any ? T : () => T;
-declare type SpawnPromiseObject<T> = {
-    [K in keyof T]: ReplaceReturnType<Functionalise<T[K]>, Promise<UnWrapPromise<StripFunctions<T[K]>>>>;
-};
-declare type SpawnedWorker<T> = SpawnPromiseObject<T> & {
+type SpawnedWorker<T> = MappedMsgFacade<T> & {
     exit: Promise<number>;
     terminate: () => Promise<number>;
 };
 
 declare const spawn: <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions) => Promise<SpawnedWorker<T>>;
+declare const spawnBidirectional: <ParentT extends Object, WorkerT extends Object>(exposeObj: ParentT, filename: string | URL, workerOptions?: WorkerOptions) => Promise<MappedMsgFacade<WorkerT> & {
+    exit: Promise<number>;
+    terminate: () => Promise<number>;
+}>;
 
 declare const primary_spawn: typeof spawn;
+declare const primary_spawnBidirectional: typeof spawnBidirectional;
 declare namespace primary {
   export {
     primary_spawn as spawn,
+    primary_spawnBidirectional as spawnBidirectional,
   };
 }
 
-declare const expose: <T extends Object>(obj: T) => void;
+declare const expose: <T extends Object>(obj: T) => Promise<{
+    promise: Promise<any>;
+}>;
+declare const exposeBidirectional: <ParentT extends Object, WorkerT extends Object>(obj: ParentT) => Promise<msg_facade.MsgFacade<WorkerT>>;
 
-declare const secondary_workerData: typeof workerData;
 declare const secondary_expose: typeof expose;
+declare const secondary_exposeBidirectional: typeof exposeBidirectional;
 declare namespace secondary {
   export {
-    secondary_workerData as workerData,
     secondary_expose as expose,
+    secondary_exposeBidirectional as exposeBidirectional,
   };
 }
 
-export { SpawnPromiseObject, SpawnedWorker, expose, primary, secondary, spawn };
+export { SpawnedWorker, expose, exposeBidirectional, primary, secondary, spawn, spawnBidirectional };

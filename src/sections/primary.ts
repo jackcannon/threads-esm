@@ -1,8 +1,8 @@
 import { Worker, WorkerOptions } from 'node:worker_threads';
-import { getDeferred } from 'swiss-ak';
-import { MsgListFunctions, MsgResult, MsgTrigger, SpawnPromiseObject, SpawnedWorker } from './types.js';
+import msgFacade, { MappedMsgFacade, MsgFacade } from 'msg-facade';
+import { SpawnedWorker } from './types.js';
 
-export const spawn = async <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions): Promise<SpawnedWorker<T>> => {
+const handleSpawn = async <T>(filename: string | URL, workerOptions: WorkerOptions, getFacade: (worker: Worker) => Promise<MsgFacade<T>>) => {
   const worker = new Worker(filename, {
     execArgv: process.execArgv,
     ...(workerOptions || {})
@@ -10,78 +10,44 @@ export const spawn = async <T extends Object>(filename: string | URL, workerOpti
 
   let terminated = false;
 
-  const deferred = getDeferred<number>();
-  worker.on('exit', (code) => {
-    if (code !== 0 && !terminated) {
-      deferred.reject(new Error(`Worker stopped with exit code ${code}`) as any);
-    } else {
-      deferred.resolve(code);
-    }
-  });
+  const facade = await getFacade(worker);
+  const { promise, ...facadeRest } = facade;
+  const callObj = facadeRest as unknown as MappedMsgFacade<T>;
 
-  const functions = await new Promise<string[]>((resolve, reject) => {
-    const resultListener = (msg: MsgListFunctions) => {
-      if (msg.type !== 'list-functions') return;
-      removeListeners();
-
-      resolve(msg.functions);
-    };
-
-    const errListener = (err) => {
-      removeListeners();
-      reject(err);
-    };
-
-    const removeListeners = () => {
-      worker.removeListener('message', resultListener);
-      worker.removeListener('error', errListener);
-    };
-
-    worker.on('message', resultListener);
-    worker.on('error', errListener);
-  });
-
-  const callFunction =
-    (fnName: string) =>
-    async (...fnArgs: any[]): Promise<any> => {
-      return new Promise((resolve, reject) => {
-        let resolved = false;
-        const id = Math.random().toString(36).slice(2);
-
-        const resultListener = (msg: MsgResult) => {
-          if (resolved) return;
-          if (msg.type !== 'result' || msg.id !== id) return;
-          resolved = true;
-          worker.removeListener('message', resultListener);
-          worker.removeListener('error', errListener);
-          resolve(msg.result);
-        };
-
-        const errListener = (err) => {
-          if (resolved) return;
-          worker.removeListener('message', resultListener);
-          worker.removeListener('error', errListener);
-          reject(err);
-        };
-
-        worker.on('message', resultListener);
-        worker.on('error', errListener);
-
-        worker.postMessage({ type: 'trigger', name: fnName, args: fnArgs, id } as MsgTrigger);
-      });
-    };
+  const exit = promise.then(
+    (code: number) =>
+      new Promise<number>((resolve, reject) => {
+        if (code !== 0 && !terminated) {
+          reject(new Error(`Worker stopped with exit code ${code}`) as any);
+        } else {
+          resolve(code);
+        }
+      })
+  );
 
   const terminate = () => {
     terminated = true;
     worker.terminate();
-    return deferred.promise;
+    return promise;
   };
-
-  const callObj = Object.fromEntries(functions.map((fnName) => [fnName, callFunction(fnName)])) as unknown as SpawnPromiseObject<T>;
 
   return {
     ...callObj,
-    exit: deferred.promise,
+    exit,
     terminate
   };
+};
+
+export const spawn = <T extends Object>(filename: string | URL, workerOptions?: WorkerOptions): Promise<SpawnedWorker<T>> => {
+  return handleSpawn<T>(filename, workerOptions, (worker) => msgFacade.obtain<T, typeof worker>(worker, msgFacade.configs.workers));
+};
+
+export const spawnBidirectional = async <ParentT extends Object, WorkerT extends Object>(
+  exposeObj: ParentT,
+  filename: string | URL,
+  workerOptions?: WorkerOptions
+) => {
+  return handleSpawn<WorkerT>(filename, workerOptions, (worker) =>
+    msgFacade.bidirectional<ParentT, WorkerT, typeof worker>(exposeObj, worker, msgFacade.configs.workers)
+  );
 };
